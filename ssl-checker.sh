@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-VERSION=0.1
+VERSION=0.2
 NAME="SSL-checker"
 
 # Global Values
@@ -9,6 +9,24 @@ SSL_WARNING_DAYS="14"
 SSL_WARNING_SEC=$(($SSL_WARNING_DAYS*86400))
 ROUTE53_MAXITEMS="500"
 ROUTE53_TMPFILE="./list_dns_entries.txt"
+
+function minTLS() {
+    DOMAIN=$1
+    result_tls=$(nmap --script ssl-enum-ciphers -p ${SSL_PORT} ${DOMAIN})
+    min_tls=$(echo $result_tls| sed -r -e "s/^.*ssl-enum-ciphers:[[:space:]]+\|[[:space:]]+([A-Za-z0-9.]+):.*$/\1/g")
+    if [[ "$min_tls" == "SSL"* || "$min_tls" == "TLSv1.0" ]]
+    then
+      echo "\e[91m>=${min_tls}"
+    elif [[ "$min_tls" == "TLSv1.1" ]]
+    then
+      echo "\e[93m>=${min_tls}"
+    elif [[ "$min_tls" == "TLSv1."* ]]
+    then
+      echo "\e[92m>=${min_tls}"
+    else
+      echo "\e[91m_error_"
+    fi
+}
 
 function checkSSL () {
     DOMAIN=$1
@@ -22,9 +40,9 @@ function checkSSL () {
         if [ "$SSL_VALID" == "Certificate will expire" ]
         then
             SSL_END_DATE=$(echo $SSL_STATUS| awk -F "notAfter=" '{print $2}'|sed 's|GMT.*$|GMT|')
-            echo -e "\e[91m\u274c \e[39mSSL $DOMAIN - Port=Open - \e[91m$SSL_VALID: $SSL_END_DATE \e[39m- Issuer=$SSL_ISSUER "
+            echo -e "\e[91m\u274c \e[39mSSL $DOMAIN - Port=Open - \e[91m$SSL_VALID: $SSL_END_DATE \e[39m- $(minTLS $DOMAIN) \e[39m- Issuer=$SSL_ISSUER"
         else
-            echo -e "\e[92m\u2714 \e[39mSSL $DOMAIN - Port=Open - \e[92m$SSL_VALID \e[39m- Issuer=$SSL_ISSUER "
+            echo -e "\e[92m\u2714 \e[39mSSL $DOMAIN - Port=Open - \e[92m$SSL_VALID \e[39m- $(minTLS $DOMAIN) \e[39m- Issuer=$SSL_ISSUER"
         fi
     fi
 }
@@ -33,6 +51,7 @@ function getDNSRecords () {
     aws route53 list-resource-record-sets --hosted-zone-id $ROUTE53_HOSTZONE --max-items=$ROUTE53_MAXITEMS --query "ResourceRecordSets[?Type == 'CNAME'].Name" --output text>$ROUTE53_TMPFILE
     aws route53 list-resource-record-sets --hosted-zone-id $ROUTE53_HOSTZONE --max-items=$ROUTE53_MAXITEMS --query "ResourceRecordSets[?Type == 'A'].Name" --output text>>$ROUTE53_TMPFILE
     sed -i -e "s/\.\t/\n/g" $ROUTE53_TMPFILE
+    sed -i -e "/^*/d" $ROUTE53_TMPFILE
 }
 
 function awsSrc () {
